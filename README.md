@@ -8,7 +8,7 @@ It uses **OpenCV**, **MediaPipe**, and **PyAutoGUI** to detect hand movements vi
 ## 🎯 Problem Statement  
 
 Traditional computer interaction relies heavily on physical input devices like a mouse or touchpad.  
-This project explores a more **natural and touchless interaction method** using **hand gestures** for pointer control.  
+This project explores a more **natural and touchless interaction method** using **hand gestures** for pointer control.
 
 ---
 
