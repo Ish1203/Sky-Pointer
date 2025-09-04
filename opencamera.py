@@ -3,74 +3,72 @@ import mediapipe as mp
 import numpy as np
 import pyautogui
 import time
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-import math
-import screen_brightness_control as sbc
+from comtypes import CLSCTX_ALL
+from screen_brightness_control import set_brightness
 
-# Camera settings
-wCam, hCam = 640, 480
-frameR = 100
-smoothening = 5
-
-cap = None
-for cam_index in [0, 1, 2]:
-    cap = cv2.VideoCapture(cam_index, cv2.CAP_DSHOW)
-    cap.set(3, wCam)
-    cap.set(4, hCam)
-    if cap.isOpened():
-        print(f"Camera opened on index {cam_index}")
-        break
-
-if cap is None or not cap.isOpened():
-    print("Could not open any camera.")
-    exit()
-
-# MediaPipe
+# Initialize mediapipe Hands
 mpHands = mp.solutions.hands
 hands = mpHands.Hands(max_num_hands=1)
 mpDraw = mp.solutions.drawing_utils
 
-# System variables
-plocX, plocY = 0, 0
-clocX, clocY = 0, 0
-screenW, screenH = pyautogui.size()
+# Screen size
+screen_width, screen_height = pyautogui.size()
+
+# Camera setup (auto-detect)
+cam_index = -1
+cap = None
+for i in range(3):
+    test_cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+    if test_cap.isOpened():
+        cam_index = i
+        cap = test_cap
+        print(f"✅ Camera opened on index {i}")
+        break
+
+if cam_index == -1 or cap is None:
+    print("❌ No camera found!")
+    exit()
+
+cap.set(3, 640)
+cap.set(4, 480)
+time.sleep(1)  # Give camera time to warm up
+
+# Audio setup
+try:
+    devices = AudioUtilities.GetSpeakers()
+    interface = devices.Activate(IAudioEndpointVolume.iid, CLSCTX_ALL, None)
+    volume = interface.QueryInterface(IAudioEndpointVolume)
+except Exception as e:
+    print(f"⚠ Audio control error: {e}")
+    volume = None
+
+# Variables for state tracking
+prev_x, prev_y = 0, 0
+smoothening = 5
 dragging = False
-multi_selecting = False
-tab_switched = False
+last_click_time = 0
 
-# Volume control
-devices = AudioUtilities.GetSpeakers()
-interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-volume = cast(interface, POINTER(IAudioEndpointVolume))
-volRange = volume.GetVolumeRange()
-minVol, maxVol = volRange[0], volRange[1]
+# FPS tracking
+pTime = time.time()
 
-# Detect fingers
+# Helper functions
 def fingersUp(lmList):
-    tipIds = [4, 8, 12, 16, 20]
     fingers = []
-
-    # Thumb
-    if lmList[tipIds[0]][1] > lmList[tipIds[0] - 1][1]:
-        fingers.append(1)
-    else:
-        fingers.append(0)
-
-    # Other fingers
-    for id in range(1, 5):
-        if lmList[tipIds[id]][2] < lmList[tipIds[id] - 2][2]:
-            fingers.append(1)
-        else:
-            fingers.append(0)
+    fingers.append(1 if lmList[4][0] > lmList[3][0] else 0)  # Thumb
+    for id in range(8, 21, 4):  # Index to pinky
+        fingers.append(1 if lmList[id][1] < lmList[id - 2][1] else 0)
     return fingers
 
+def findDistance(p1, p2):
+    return np.hypot(p2[0] - p1[0], p2[1] - p1[1])
+
+# Main loop
 while True:
     success, img = cap.read()
     if not success:
-        print("Failed to read frame.")
-        break
+        print("⚠ Frame grab failed, retrying...")
+        continue
 
     imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     results = hands.process(imgRGB)
@@ -78,93 +76,89 @@ while True:
 
     if results.multi_hand_landmarks:
         for handLms in results.multi_hand_landmarks:
-            mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS)
             for id, lm in enumerate(handLms.landmark):
                 h, w, c = img.shape
                 cx, cy = int(lm.x * w), int(lm.y * h)
-                lmList.append([id, cx, cy])
+                lmList.append((cx, cy))
+            mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS)
 
     if lmList:
         fingers = fingersUp(lmList)
-        x1, y1 = lmList[8][1], lmList[8][2]   # Index tip
-        x2, y2 = lmList[12][1], lmList[12][2] # Middle tip
-        x0, y0 = lmList[4][1], lmList[4][2]   # Thumb tip
-        x4, y4 = lmList[20][1], lmList[20][2] # Pinky tip
-        x3, y3 = lmList[16][1], lmList[16][2] # Ring tip
 
-        # Distance calculations
-        pinch_distance = math.hypot(x1 - x0, y1 - y0)
-        index_middle_dist = math.hypot(x1 - x2, y1 - y2)
+        # Mouse Move
+        if fingers == [0, 1, 0, 0, 0]:
+            x, y = lmList[8]
+            screen_x = np.interp(x, (100, 540), (0, screen_width))
+            screen_y = np.interp(y, (100, 380), (0, screen_height))
+            curr_x = prev_x + (screen_x - prev_x) / smoothening
+            curr_y = prev_y + (screen_y - prev_y) / smoothening
+            pyautogui.moveTo(curr_x, curr_y)
+            prev_x, prev_y = curr_x, curr_y
 
-        # -------------------- MOVE CURSOR --------------------
-        if fingers == [0,1,0,0,0]:
-            xM = np.interp(x1, (frameR, wCam - frameR), (0, screenW))
-            yM = np.interp(y1, (frameR, hCam - frameR), (0, screenH))
-            clocX = plocX + (xM - plocX) / smoothening
-            clocY = plocY + (yM - plocY) / smoothening
-            pyautogui.moveTo(clocX, clocY)
-            plocX, plocY = clocX, clocY
+        # Left Click
+        elif fingers == [0, 1, 1, 0, 0]:
+            if findDistance(lmList[8], lmList[12]) < 30:
+                pyautogui.click()
+                time.sleep(0.2)
 
-        # -------------------- LEFT CLICK --------------------
-        elif fingers == [0,1,1,0,0] and index_middle_dist < 40:
-            pyautogui.click(button="left")
+        # Right Click
+        elif fingers == [1, 1, 0, 0, 0]:
+            pyautogui.rightClick()
             time.sleep(0.3)
 
-        # -------------------- RIGHT CLICK --------------------
-        elif fingers == [1,1,0,0,0]:
-            pyautogui.click(button="right")
-            time.sleep(0.3)
+        # Double Click
+        elif fingers == [0, 1, 1, 0, 0]:
+            if findDistance(lmList[8], lmList[12]) > 40:
+                pyautogui.doubleClick()
+                time.sleep(0.3)
 
-        # -------------------- DOUBLE CLICK --------------------
-        elif fingers == [0,1,1,0,0] and index_middle_dist > 50:
-            pyautogui.doubleClick()
-            time.sleep(0.3)
-
-        # -------------------- SCROLL --------------------
-        elif fingers == [0,0,0,1,0]:
-            pyautogui.scroll(-50)
+        # Scroll
+        elif fingers == [0, 0, 0, 1, 0]:
+            pyautogui.scroll(200)
             time.sleep(0.2)
 
-        # -------------------- DRAG & DROP --------------------
-        elif pinch_distance < 40 and not dragging:
-            pyautogui.mouseDown()
-            dragging = True
-        elif pinch_distance > 50 and dragging:
-            pyautogui.mouseUp()
-            dragging = False
+        # Drag & Drop
+        elif fingers == [1, 1, 0, 0, 0]:
+            if findDistance(lmList[4], lmList[8]) < 40:
+                if not dragging:
+                    pyautogui.mouseDown()
+                    dragging = True
+            else:
+                if dragging:
+                    pyautogui.mouseUp()
+                    dragging = False
 
-               # -------------------- MULTIPLE SELECTION --------------------
-        elif fingers == [0,1,1,0,0] and pinch_distance < 40:
-            if not multi_selecting:
-                pyautogui.keyDown("ctrl")
-                multi_selecting = True
-        elif multi_selecting:
-            pyautogui.keyUp("ctrl")
-            multi_selecting = False
-
-        # -------------------- VOLUME CONTROL --------------------
-        elif fingers == [1,1,0,0,0]:
-            length = math.hypot(x1 - x0, y1 - y0)
-            vol = np.interp(length, [30, 200], [minVol, maxVol])
+        # Volume Control
+        elif fingers == [1, 1, 1, 0, 0] and volume:
+            dist = findDistance(lmList[4], lmList[8])
+            vol = np.interp(dist, [30, 200], [-65.25, 0])
             volume.SetMasterVolumeLevel(vol, None)
 
-        # -------------------- BRIGHTNESS CONTROL --------------------
-        elif fingers == [0,0,0,0,1]:
-            brightness = np.interp(y4, [100, hCam-100], [100, 0])
-            sbc.set_brightness(int(brightness))
+        # Brightness Control
+        elif fingers == [0, 0, 0, 0, 1]:
+            dist = findDistance(lmList[4], lmList[20])
+            bright = np.interp(dist, [30, 200], [0, 100])
+            try:
+                set_brightness(int(bright))
+            except Exception as e:
+                print(f"⚠ Brightness error: {e}")
 
-        # -------------------- CHANGE TAB --------------------
-        elif fingers == [1,0,0,0,1] and not tab_switched:
-            pyautogui.hotkey("ctrl", "tab")
-            tab_switched = True
-            time.sleep(0.4)
-        else:
-            tab_switched = False
+        # Change Tab
+        elif fingers == [1, 0, 0, 0, 1]:
+            pyautogui.hotkey('ctrl', 'tab')
+            time.sleep(0.3)
 
-    cv2.rectangle(img, (frameR, frameR), (wCam - frameR, hCam - frameR), (255, 255, 0), 2)
-    cv2.imshow("Gesture Controller", img)
+    # FPS display
+    cTime = time.time()
+    fps = 1 / (cTime - pTime)
+    pTime = cTime
+    cv2.putText(img, f'FPS: {int(fps)}', (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+    cv2.imshow("Hand Tracking", img)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        print("🛑 Exiting gesture control. Goodbye!")
         break
 
 cap.release()

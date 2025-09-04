@@ -3,8 +3,9 @@ import mediapipe as mp
 import math
 import numpy as np
 
+
 class handDetector:
-    def __init__(self, mode=False, maxHands=1, detectionCon=0.7, trackCon=0.7):
+    def _init_(self, mode=False, maxHands=1, detectionCon=0.7, trackCon=0.7):
         self.mode = mode
         self.maxHands = maxHands
         self.detectionCon = detectionCon
@@ -21,6 +22,7 @@ class handDetector:
         self.tipIds = [4, 8, 12, 16, 20]
         self.lmList = []
         self.bbox = []
+        self.results = None   # ✅ Prevent AttributeError if findHands not called yet
 
         # For smoothing
         self.plocX, self.plocY = 0, 0
@@ -33,8 +35,9 @@ class handDetector:
         if self.results.multi_hand_landmarks:
             for handLms in self.results.multi_hand_landmarks:
                 if draw:
-                    self.mpDraw.draw_landmarks(img, handLms,
-                                               self.mpHands.HAND_CONNECTIONS)
+                    self.mpDraw.draw_landmarks(
+                        img, handLms, self.mpHands.HAND_CONNECTIONS
+                    )
         return img
 
     def findPosition(self, img, handNo=0, draw=True):
@@ -42,7 +45,7 @@ class handDetector:
         self.lmList = []
         self.bbox = []
 
-        if self.results.multi_hand_landmarks:
+        if self.results and self.results.multi_hand_landmarks:
             myHand = self.results.multi_hand_landmarks[handNo]
             for id, lm in enumerate(myHand.landmark):
                 h, w, c = img.shape
@@ -68,7 +71,7 @@ class handDetector:
         if not self.lmList:
             return fingers
 
-        # Thumb (check left vs right hand using landmarks)
+        # Thumb (⚠ works best for right hand — left hand may flip)
         if self.lmList[self.tipIds[0]][1] > self.lmList[self.tipIds[0] - 1][1]:
             fingers.append(1)
         else:
@@ -96,11 +99,10 @@ class handDetector:
         length = math.hypot(x2 - x1, y2 - y1)
         return length, img, [x1, y1, x2, y2, cx, cy]
 
-    def smoothMouse(self, x, y, screenW, screenH, frameR=50):
-        """Map hand coords to screen with smoothing (full screen coverage)."""
-        # Map hand coords to screen (cover full bottom & sides)
-        xMapped = np.interp(x, (frameR, 640 - 10), (0, screenW))
-        yMapped = np.interp(y, (frameR, 480 - 10), (0, screenH))
+    def smoothMouse(self, x, y, screenW, screenH, camW=640, camH=480, frameR=50):
+        """Map hand coords to screen with smoothing (no hardcoded resolution)."""
+        xMapped = np.interp(x, (frameR, camW - frameR), (0, screenW))
+        yMapped = np.interp(y, (frameR, camH - frameR), (0, screenH))
 
         # Smooth movement
         self.clocX = self.plocX + (xMapped - self.plocX) / self.smoothening
