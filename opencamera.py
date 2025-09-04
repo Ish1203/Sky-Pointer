@@ -150,7 +150,7 @@ while True:
 
     # FPS display
     cTime = time.time()
-    fps = 1 / (cTime - pTime)
+    fps = 1 / (cTime - pTime)#FPS calculation
     pTime = cTime
     cv2.putText(img, f'FPS: {int(fps)}', (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
