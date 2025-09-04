@@ -85,3 +85,6 @@ Create a new branch (feature/your-feature-name)
 Commit your changes
 
 Push to your fork and open a Pull Request
+
+
+# Please star our repo for support
