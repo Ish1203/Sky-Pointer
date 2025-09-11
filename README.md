@@ -1,4 +1,4 @@
-# 🌌 Sky Pointer – Gesture Controlled Pointer!
+## 🌌 Sky Pointer – Gesture Controlled Pointer!
 
 Sky Pointer is a computer vision project that allows users to **control the cursor using hand gestures** instead of a physical mouse.  
 It uses **OpenCV**, **MediaPipe**, and **PyAutoGUI** to detect hand movements via a webcam and translate them into system cursor actions.  
