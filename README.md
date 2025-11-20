@@ -23,7 +23,7 @@ This project explores a more **natural and touchless interaction method** using 
 
 ## 🛠️ Tools & Technologies  
 
-- **Python 3.x** 
+- **Python 3.9
 - **OpenCV** – For video capture & image processing  
 - **MediaPipe** – For real-time hand tracking & gesture recognition  
 - **NumPy** – For calculations and transformations  
